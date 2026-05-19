@@ -4,6 +4,7 @@ from django.http import HttpResponse, JsonResponse
 import json
 from youtube_transcript_api import YouTubeTranscriptApi
 from urllib.parse import urlparse, parse_qs
+import google.generativeai as genai
 
 # Create your views here.
 
@@ -17,15 +18,49 @@ class GetDetails(View):
         
         data = json.loads(request.body)
         url = data['url']
+        lan = data['language']
         video_id = self.extract_video_id(url)
+        
         print(video_id)
-        if video_id != None:
-            transcript = ytt_api.fetch(video_id, languages=['ta'])
+        language_map = {
+            "Tamil": "ta",
+            "English": "en",
+            "Hindi": "hi",
+            "French": "fr"
+        }
+        language = language_map[lan]
+        '''if video_id != None:
+            transcript = ytt_api.fetch(video_id, languages=[language])
             full_text = " ".join([item.text for item in transcript])
-            with open('youtube_' + video_id, 'w', encoding="utf-8") as file:
+            #with open('youtube_' + video_id, 'w', encoding="utf-8") as file:
+            with open (rf"C:Projects\DB\Subtitle\{video_id}.txt", "w", encoding="utf-8" ) as file:   
                 file.write(full_text)
             file.close()
-            return JsonResponse({"message" : "Video Transcripted and File Successfully Downloaded"})
+            summary = self.ai_summarise(video_id, language)'''
+        if video_id != None:
+            # Get available transcripts
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+
+            # Fetch first available transcript
+            transcript = next(iter(transcript_list))
+
+            fetched_transcript = transcript.fetch()
+
+            # Convert transcript list into text
+            transcript_text = " ".join(
+                [item.text for item in fetched_transcript]
+            )
+
+            # Save transcript
+            with open(
+                rf"C:Projects\DB\Subtitle\{video_id}.txt",
+                "w",
+                encoding="utf-8"
+            ) as file:
+
+                file.write(transcript_text)
+
+            return JsonResponse({"message" : "Video Transcripted and Summarised. File Successfully Downloaded"})
         return JsonResponse({"message" : "Enter a Valid Url"})
 
         
@@ -51,6 +86,30 @@ class GetDetails(View):
             return parsed_url.path.split("/embed/")[1]
 
         return None
+
+    def ai_summarise(self, video_id, language):
+        genai.configure(api_key="YOUR_API_KEY")
+
+        # Read transcript file
+        with open(rf"C:Projects\DB\Subtitle\{video_id}.txt", "r", encoding="utf-8") as file:
+            transcript = file.read()
+        #for model in genai.list_models():
+        #    print(model.name)
+        # Load model
+        model = genai.GenerativeModel("gemini-2.5-flash")
+
+        
+        # Generate summary
+        response = model.generate_content(
+            f"Summarize this transcript simply in points as per the mentioned language{language}:\n\n{transcript}"
+        )
+        summary = response.text
+        # Print summary
+        with open(rf"C:Projects\DB\Summary\{video_id}.txt", "w", encoding="utf-8") as file:
+            file.write(summary)
+
+        #print(response.text)
+
 
                 
         
