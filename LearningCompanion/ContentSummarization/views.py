@@ -115,8 +115,7 @@ class GetDetails(View):
         return None
 
     def ai_summarise(self, video_id, language):
-        #genai.configure(api_key=os.environ.get("AIzaSyA9PAbfL4ofIgfF1mlxEUtbaMJXjky4XNM"))
-        genai.configure(api_key="AIzaSyA9PAbfL4ofIgfF1mlxEUtbaMJXjky4XNM")
+        genai.configure(api_key="API_KEY")
         
         # Read transcript file
         with open(rf"C:\Users\sange\Projects\DB\Subtitle\{language}\{video_id}.txt", "r", encoding="utf-8") as file:
