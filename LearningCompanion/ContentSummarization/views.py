@@ -1,10 +1,11 @@
-from django.shortcuts import render
 from django.views import View
-from django.http import HttpResponse, JsonResponse
+from django.http import JsonResponse
+from django.shortcuts import render
 import json
 from youtube_transcript_api import YouTubeTranscriptApi
 from urllib.parse import urlparse, parse_qs
 import google.generativeai as genai
+import os
 
 # Create your views here.
 
@@ -14,54 +15,80 @@ class GetDetails(View):
     #    data = json.loads(request.body)
     #    return JsonResponse(data)
     def get(self, request):
+        return render(request, "ContentSummarization/index.html")
+
+    def post(self, request):
         ytt_api = YouTubeTranscriptApi()
         
         data = json.loads(request.body)
         url = data['url']
-        lan = data['language']
+        language = data['language']
         video_id = self.extract_video_id(url)
         
-        print(video_id)
-        language_map = {
-            "Tamil": "ta",
-            "English": "en",
-            "Hindi": "hi",
-            "French": "fr"
-        }
-        language = language_map[lan]
-        '''if video_id != None:
+
+        #language = language_map[lan]
+        '''
+        if video_id != None:
             transcript = ytt_api.fetch(video_id, languages=[language])
             full_text = " ".join([item.text for item in transcript])
             #with open('youtube_' + video_id, 'w', encoding="utf-8") as file:
-            with open (rf"C:Projects\DB\Subtitle\{video_id}.txt", "w", encoding="utf-8" ) as file:   
-                file.write(full_text)
+            
             file.close()
             summary = self.ai_summarise(video_id, language)'''
         if video_id != None:
+            ytt_api = YouTubeTranscriptApi()
+
             # Get available transcripts
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            transcript_list = ytt_api.list(video_id)
 
-            # Fetch first available transcript
-            transcript = next(iter(transcript_list))
+            try:
 
-            fetched_transcript = transcript.fetch()
+                transcript_list = ytt_api.list(video_id)
 
-            # Convert transcript list into text
-            transcript_text = " ".join(
-                [item.text for item in fetched_transcript]
-            )
+                try:
+                    # Try English subtitles first
+                    transcript = transcript_list.find_transcript(['en'])
 
-            # Save transcript
-            with open(
-                rf"C:Projects\DB\Subtitle\{video_id}.txt",
-                "w",
-                encoding="utf-8"
-            ) as file:
+                except:
+                    # Otherwise use first available subtitle
+                    transcript = next(iter(transcript_list), None)
+                    print("trans ", transcript)
 
-                file.write(transcript_text)
+                # If no subtitles exist
+                if transcript is None:
+                    print(None)
 
-            return JsonResponse({"message" : "Video Transcripted and Summarised. File Successfully Downloaded"})
-        return JsonResponse({"message" : "Enter a Valid Url"})
+                else:
+
+                    # Fetch subtitles
+                    fetched_transcript = transcript.fetch()
+
+                    # Convert to text
+                    transcript_text = " ".join(
+                        [item.text for item in fetched_transcript]
+                    )
+                    # Create folder if it doesn't exist
+                    folder_path = rf"C:\Users\sange\Projects\DB\Subtitle\{language}"
+                    os.makedirs(folder_path, exist_ok=True)
+
+                    file_path = rf"{folder_path}\{video_id}.txt"
+                    with open(
+                            file_path,
+                            "w",
+                            encoding="utf-8"
+                        ) as file:
+
+                            file.write(transcript_text)
+                    print(transcript_text)
+                summary = self.ai_summarise(video_id, language)
+                return JsonResponse({
+                    "message": "Video transcripted and summarised successfully.",
+                    "summary": summary,
+                })
+            except Exception as e:
+                return JsonResponse({"message": str(e)}, status=400)
+            
+        return JsonResponse({"message": "Enter a valid YouTube URL."}, status=400)
 
         
 
@@ -88,13 +115,13 @@ class GetDetails(View):
         return None
 
     def ai_summarise(self, video_id, language):
-        genai.configure(api_key="YOUR_API_KEY")
-
+        #genai.configure(api_key=os.environ.get("AIzaSyA9PAbfL4ofIgfF1mlxEUtbaMJXjky4XNM"))
+        genai.configure(api_key="AIzaSyA9PAbfL4ofIgfF1mlxEUtbaMJXjky4XNM")
+        
         # Read transcript file
-        with open(rf"C:Projects\DB\Subtitle\{video_id}.txt", "r", encoding="utf-8") as file:
+        with open(rf"C:\Users\sange\Projects\DB\Subtitle\{language}\{video_id}.txt", "r", encoding="utf-8") as file:
             transcript = file.read()
-        #for model in genai.list_models():
-        #    print(model.name)
+
         # Load model
         model = genai.GenerativeModel("gemini-2.5-flash")
 
@@ -104,11 +131,18 @@ class GetDetails(View):
             f"Summarize this transcript simply in points as per the mentioned language{language}:\n\n{transcript}"
         )
         summary = response.text
+        #summary = transcript
         # Print summary
-        with open(rf"C:Projects\DB\Summary\{video_id}.txt", "w", encoding="utf-8") as file:
+        # Create folder if it doesn't exist
+        folder_path = rf"C:\Users\sange\Projects\DB\Summary\{language}"
+        os.makedirs(folder_path, exist_ok=True)
+
+        file_path = rf"{folder_path}\{video_id}.txt"
+        with open(file_path, "w", encoding="utf-8") as file:
             file.write(summary)
 
-        #print(response.text)
+        return summary
+
 
 
                 
