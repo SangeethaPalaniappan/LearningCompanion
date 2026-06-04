@@ -132,6 +132,100 @@
             padding: 42px;
         }
 
+        .workspace-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            margin-bottom: 26px;
+        }
+
+        .user-menu {
+            position: relative;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        .user-toggle {
+            width: 44px;
+            min-height: 44px;
+            border: 1px solid rgba(24, 33, 47, 0.08);
+            border-radius: 50%;
+            padding: 0;
+            color: #fff;
+            background: var(--focus);
+            font-size: 1rem;
+            font-weight: 900;
+        }
+
+        .user-toggle:hover,
+        .user-toggle[aria-expanded="true"] {
+            background: var(--accent-dark);
+            box-shadow: 0 12px 24px rgba(24, 33, 47, 0.16);
+            transform: translateY(-1px);
+        }
+
+        .user-popover {
+            position: absolute;
+            top: calc(100% + 10px);
+            right: 0;
+            display: none;
+            min-width: 190px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 12px;
+            background: #fff;
+            box-shadow: 0 16px 36px rgba(24, 33, 47, 0.16);
+            z-index: 5;
+        }
+
+        .user-popover.is-open {
+            display: block;
+        }
+
+        .user-name {
+            display: block;
+            margin-bottom: 10px;
+            color: var(--ink);
+            font-weight: 800;
+            word-break: break-word;
+        }
+
+        .message-popup {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            max-width: min(360px, calc(100% - 32px));
+            border: 1px solid rgba(15, 118, 110, 0.2);
+            border-radius: 8px;
+            padding: 14px 14px 14px 16px;
+            color: #134e4a;
+            background: #ccfbf1;
+            box-shadow: 0 18px 42px rgba(24, 33, 47, 0.18);
+            font-weight: 800;
+            z-index: 20;
+        }
+
+        .message-close {
+            width: 30px;
+            min-height: 30px;
+            border: 0;
+            border-radius: 50%;
+            padding: 0;
+            color: #134e4a;
+            background: rgba(255, 255, 255, 0.7);
+            font-size: 1.2rem;
+            line-height: 1;
+        }
+
+        .message-close:hover {
+            color: #fff;
+            background: var(--focus);
+        }
+
         .section-label {
             margin: 0 0 8px;
             color: var(--accent-dark);
@@ -150,6 +244,10 @@
         form {
             display: grid;
             gap: 18px;
+        }
+
+        .logout-form {
+            display: block;
         }
 
         label {
@@ -200,6 +298,20 @@
             font-weight: 800;
             cursor: pointer;
             transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
+        }
+
+        .logout-button {
+            min-height: 40px;
+            border: 1px solid var(--line);
+            padding: 0 14px;
+            color: var(--ink);
+            background: #fff;
+            font-size: 0.9rem;
+        }
+
+        .logout-button:hover {
+            color: #fff;
+            background: var(--accent-dark);
         }
 
         button:hover {
@@ -306,6 +418,16 @@
             .status {
                 white-space: normal;
             }
+
+            .workspace-header {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .user-popover {
+                left: 0;
+                right: auto;
+            }
         }
     </style>
 </head>
@@ -339,8 +461,24 @@
             </aside>
 
             <section class="workspace" aria-labelledby="summarizer-title">
-                <p class="section-label">Summarize a video</p>
-                <h2 id="summarizer-title">Create study notes from any captioned YouTube video.</h2>
+                <div class="workspace-header">
+                    <div>
+                        <p class="section-label">Summarize a video</p>
+                        <h2 id="summarizer-title">Create study notes from any captioned YouTube video.</h2>
+                    </div>
+                    <div class="user-menu">
+                        <button class="user-toggle" type="button" aria-expanded="false" aria-controls="user-popover">
+                            {{ request.user.username|first|upper }}
+                        </button>
+                        <div id="user-popover" class="user-popover">
+                            <span class="user-name">{{ request.user.username }}</span>
+                            <form class="logout-form" method="post" action="{% url 'logout' %}">
+                                {% csrf_token %}
+                                <button class="logout-button" type="submit">Log out</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
 
                 <form id="summary-form">
                     {% csrf_token %}
@@ -394,12 +532,42 @@
         </section>
     </main>
 
+    {% if messages %}
+        {% for message in messages %}
+            <div class="message-popup" role="status" aria-live="polite">
+                <span>{{ message }}</span>
+                <button class="message-close" type="button" aria-label="Close message">&times;</button>
+            </div>
+        {% endfor %}
+    {% endif %}
+
     <script>
         const form = document.querySelector("#summary-form");
         const submitButton = document.querySelector("#submit-button");
         const summary = document.querySelector("#summary");
         const statusText = document.querySelector("#status");
         const csrfToken = document.querySelector("[name=csrfmiddlewaretoken]").value;
+        const userToggle = document.querySelector(".user-toggle");
+        const userPopover = document.querySelector("#user-popover");
+        const messagePopup = document.querySelector(".message-popup");
+        const messageClose = document.querySelector(".message-close");
+
+        userToggle.addEventListener("click", () => {
+            const isOpen = userPopover.classList.toggle("is-open");
+            userToggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+        });
+
+        document.addEventListener("click", (event) => {
+            if (!event.target.closest(".user-menu")) {
+                userPopover.classList.remove("is-open");
+                userToggle.setAttribute("aria-expanded", "false");
+            }
+        });
+
+        if (messagePopup && messageClose) {
+            messageClose.addEventListener("click", () => messagePopup.remove());
+            setTimeout(() => messagePopup.remove(), 3500);
+        }
 
         function escapeHtml(value) {
             return value

@@ -1,15 +1,44 @@
+from django.contrib import messages
+from django.contrib.auth import login
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.urls import reverse_lazy
 from django.views import View
+from django.views.generic.edit import FormView
 from django.http import JsonResponse
 from django.shortcuts import render
 import json
 from youtube_transcript_api import YouTubeTranscriptApi
 from urllib.parse import urlparse, parse_qs
 import google.generativeai as genai
+from .forms import SignUpForm
+from .models import Users, VideoSubtitle
 import os
+
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:
+    load_dotenv = None
 
 # Create your views here.
 
-class GetDetails(View):
+class SignUpView(FormView):
+    template_name = "registration/signup.html"
+    form_class = SignUpForm
+    success_url = reverse_lazy("get")
+
+    def form_valid(self, form):
+        user = form.save()
+        Users.objects.create(
+            user_name=user.username,
+            mail_id=form.cleaned_data["email"],
+            password=user.password,
+        )
+        login(self.request, user)
+        messages.success(self.request, "Account created successfully.")
+        return super().form_valid(form)
+
+
+class GetDetails(LoginRequiredMixin, View):
     #def get(self, request):
         #return HttpResponse(f"Welcome to the Content Summarization Section And today is {day}")
     #    data = json.loads(request.body)
@@ -18,79 +47,47 @@ class GetDetails(View):
         return render(request, "ContentSummarization/index.html")
 
     def post(self, request):
-        ytt_api = YouTubeTranscriptApi()
-        
         data = json.loads(request.body)
         url = data['url']
         language = data['language']
         video_id = self.extract_video_id(url)
-        
 
-        #language = language_map[lan]
-        '''
-        if video_id != None:
-            transcript = ytt_api.fetch(video_id, languages=[language])
-            full_text = " ".join([item.text for item in transcript])
-            #with open('youtube_' + video_id, 'w', encoding="utf-8") as file:
-            
-            file.close()
-            summary = self.ai_summarise(video_id, language)'''
-        if video_id != None:
-            ytt_api = YouTubeTranscriptApi()
+        if video_id is None:
+            return JsonResponse({"message": "Enter a valid YouTube URL."}, status=400)
 
-            # Get available transcripts
-            transcript_list = ytt_api.list(video_id)
+        try:
+            subtitle_record = VideoSubtitle.objects.filter(video_id=video_id).first()
 
-            try:
+            if subtitle_record:
+                transcript_text = subtitle_record.subtitle
+                message = "Subtitle found in database and summarised successfully."
+            else:
+                transcript_text = self.fetch_transcript(video_id)
+                VideoSubtitle.objects.create(video_id=video_id, subtitle=transcript_text)
+                message = "Subtitle fetched, saved to database, and summarised successfully."
 
-                transcript_list = ytt_api.list(video_id)
+            summary = self.ai_summarise(video_id, language, transcript_text)
+            return JsonResponse({
+                "message": message,
+                "summary": summary,
+            })
+        except Exception as e:
+            return JsonResponse({"message": str(e)}, status=400)
 
-                try:
-                    # Try English subtitles first
-                    transcript = transcript_list.find_transcript(['en'])
+    def fetch_transcript(self, video_id):
+        ytt_api = YouTubeTranscriptApi()
+        transcript_list = ytt_api.list(video_id)
 
-                except:
-                    # Otherwise use first available subtitle
-                    transcript = next(iter(transcript_list), None)
-                    print("trans ", transcript)
+        try:
+            transcript = transcript_list.find_transcript(['en'])
+        except Exception:
+            transcript = next(iter(transcript_list), None)
 
-                # If no subtitles exist
-                if transcript is None:
-                    print(None)
+        if transcript is None:
+            raise ValueError("No subtitles are available for this video.")
 
-                else:
-
-                    # Fetch subtitles
-                    fetched_transcript = transcript.fetch()
-
-                    # Convert to text
-                    transcript_text = " ".join(
-                        [item.text for item in fetched_transcript]
-                    )
-                    # Create folder if it doesn't exist
-                    folder_path = rf"C:\Users\sange\Projects\DB\Subtitle\{language}"
-                    os.makedirs(folder_path, exist_ok=True)
-
-                    file_path = rf"{folder_path}\{video_id}.txt"
-                    with open(
-                            file_path,
-                            "w",
-                            encoding="utf-8"
-                        ) as file:
-
-                            file.write(transcript_text)
-                    print(transcript_text)
-                summary = self.ai_summarise(video_id, language)
-                return JsonResponse({
-                    "message": "Video transcripted and summarised successfully.",
-                    "summary": summary,
-                })
-            except Exception as e:
-                return JsonResponse({"message": str(e)}, status=400)
-            
-        return JsonResponse({"message": "Enter a valid YouTube URL."}, status=400)
-
-        
+        fetched_transcript = transcript.fetch()
+        return " ".join([item.text for item in fetched_transcript])
 
     def extract_video_id(self, url):
 
@@ -114,12 +111,17 @@ class GetDetails(View):
 
         return None
 
-    def ai_summarise(self, video_id, language):
-        genai.configure(api_key="API_KEY")
+    def ai_summarise(self, video_id, language, transcript):
+         
+        if load_dotenv:
+            load_dotenv("api_key.env")
+        api_key = os.getenv("API_KEY") 
         
-        # Read transcript file
-        with open(rf"C:\Users\sange\Projects\DB\Subtitle\{language}\{video_id}.txt", "r", encoding="utf-8") as file:
-            transcript = file.read()
+        
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY environment variable is not set.")
+
+        genai.configure(api_key=api_key)
 
         # Load model
         model = genai.GenerativeModel("gemini-2.5-flash")
